@@ -1,0 +1,25 @@
+name: qclef_fs
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.9
+  - numpy
+  - pandas
+  - scipy
+  - pandas
+  - scikit-learn
+  - matplotlib
+  - seaborn
+  - lightgbm  # LambdaMART
+  - tqdm  # Progress bars
+  - joblib  # Parallel processing
+  - pip
+  - pip:
+      - dwave-ocean-sdk  # For Quantum Annealing (D-Wave)
+      - dimod  # QUBO model for QA
+      - scikit-optimize  # Bayesian optimization for SA hyperparameters
+      - pyarrow
+      - dwave-neal
+
