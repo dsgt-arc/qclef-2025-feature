@@ -1,8 +1,8 @@
 import dimod
+import neal
 import numpy as np
 import lightgbm as lgb
-from sklearn.metrics import ndcg_score
-from sklearn.base import clone
+from sklearn.metrics import ndcg_score, mean_absolute_error
 from models.MutualInformation import conditional_mutual_information, prob, maximum_energy_delta
 import pandas as pd
 import itertools
@@ -45,6 +45,20 @@ class PermutationFeatureImportance:
         # self.model = model
         self.feature_importances_ = None
         self.selected_features = None
+
+    def _compute_mae(self, model, X, y):
+        """
+        Computes mean absolute error.
+        
+        Args:
+        X: Feature matrix.
+        y: Data labels.
+    
+        Returns:
+        MAE: Mean absolute error score for the test set.
+        """
+        y_pred = model.predict(X)
+        return mean_absolute_error(y, y_pred)
     
     def _compute_ndcg(self, model, X, y):
         """
@@ -58,8 +72,6 @@ class PermutationFeatureImportance:
         1 - ndcg (float): 1 - nDCG@k score for the test set.
         """
         y_pred = model.predict(X)
-        # y = y.reshape(1, -1)
-        # y_pred = y_pred.reshape(1, -1)
         return 1 - ndcg_score([y], [y_pred], k=10)
 
     def _permute_feature(self, feature_idx):
@@ -73,19 +85,46 @@ class PermutationFeatureImportance:
         X_perm: A copy of the feature matrix with one feature shuffled.
         """
         X_perm = self.X.copy()
-        X_perm_array = X_perm.iloc[:, feature_idx].values #Turn the column into an array
+        X_perm_array = X_perm.iloc[:, feature_idx].values
         np.random.shuffle(X_perm_array)
-        X_perm.iloc[:, feature_idx] = X_perm_array #Add the shuffled column back into the matrix
+        X_perm.iloc[:, feature_idx] = X_perm_array #Add the shuffled column back into the dataframe
         return X_perm
     
-    def fit(self, k=10):
+    def _conditional_permute_feature(self, feature_idx_1, feature_idx_2):
         """
-        Computes feature importances using permutation importance and simulated annealing.
-        
+        Permutes two features at the same time.
+
         Args:
-        X: Feature matrix.
-        y: Data labels.
+        feature_idx_1: The index of the first feature
+        feature_idx_2: The index of the second feature
+
+        Returns:
+        X_perm: A copy of the feature matrix with two features shuffled.
         """
+        X_perm = self.X.copy()
+
+        feature_1_array = X_perm.iloc[:, feature_idx_1].values
+        feature_2_array = X_perm.iloc[:, feature_idx_2].values
+        combined_array = np.column_stack((feature_1_array, feature_2_array))
+        np.random.shuffle(combined_array)
+
+        #Add the shuffled columns back into the dataframe
+        X_perm.iloc[:, feature_idx_1] = combined_array[:, 0]
+        X_perm.iloc[:, feature_idx_2] = combined_array[:, 1]
+
+        return X_perm
+    
+    def _get_feature_importances(self):
+        """
+        Computes both the Permutation Feature Importance for each feature and the 
+        Conditional Permutation Feature importance for eachh combination of features.
+
+        Returns:
+        (diagonal_feature_importances, off_diagonal_feature_importances): A tuple of 
+            dictionaries that contain the diagonal feature importances and the off-diagonal 
+            (conditional) feature importances.
+        """
+
         #Train model clone on original data
         y_train = np.array(self.y)
         X_train = self.X.values
@@ -106,42 +145,65 @@ class PermutationFeatureImportance:
         e_orig = self._compute_ndcg(model, self.X, self.y)
         
         #Compute change in loss for each feature to determine feature importance
-        feature_importances = []
+        diagonal_feature_importances = []
+        off_diagonal_feature_importances = []
         num_features = self.X.shape[1]
         for j in range(num_features):
             X_perm = self._permute_feature(j)
             e_perm_j = self._compute_ndcg(model, X_perm, self.y)
             FI_j = e_perm_j - e_orig
-            feature_importances.append((j, FI_j))
-        
-        self.feature_importances_ = dict(feature_importances)
+            diagonal_feature_importances.append((j, FI_j))
 
-        self.BQM = self.form_bqm(k)
+        for (f1_idx, f2_idx) in itertools.combinations(range(len(list(self.X.columns))), 2):
+            X_perm = self._conditional_permute_feature(f1_idx, f2_idx)
+            e_perm_f1f2 = self._compute_ndcg(model, X_perm, self.y)
+            FI_f1f2 = e_perm_f1f2 - e_orig
+            off_diagonal_feature_importances.append(((f1_idx, f2_idx), FI_f1f2))
+
+        return (dict(diagonal_feature_importances), dict(off_diagonal_feature_importances))
+
+    def fit(self, k=10, type="cpfi"):
+        """
+        Forms the QUBO matric and runs the optimization with simulated annealing.
+        
+        Args:
+        X: Feature matrix.
+        y: Data labels.
+        """
+        self.BQM = self.form_bqm(k, type)
 
         #Use simulated annealing to optimize feature ranking
         return self._optimize_feature_ranking()
     
-    def form_bqm(self, k):
-        """Builds the BQM according to Permutation Feature Importance and
-        Conditional Mutual Information"""
+    def form_bqm(self, k, type):
+        """
+        Builds the BQM according to Permutation Feature Importance on the diagonal and
+        Conditional Permutation Feature Importance on the off-diagonal.
+
+        Args:
+        k (int): Number of features to select
+
+        Returns:
+        kbqm        
+        """
         BQM = dimod.BinaryQuadraticModel.empty(dimod.BINARY)
 
         feature_labels = list(self.X.columns)
+        feature_importances = self._get_feature_importances()
 
         # Compute diagonal elements (PFI)
         for j in range(len(feature_labels)):
-            BQM.add_variable(feature_labels[j], - self.feature_importances_.get(j))
+            BQM.add_variable(feature_labels[j], feature_importances[0].get(j))
 
         # Compute off-diagonal elements (CMI)
-        for (f1_idx, f2_idx) in itertools.combinations(range(len(self.feature_importances_.keys())), 2):
-            f1_label, f2_label = feature_labels[f1_idx], feature_labels[f2_idx]
-
-            # Compute Conditional Mutual Information
-            cmi = conditional_mutual_information(
-                prob(pd.concat([self.y, self.X[[f1_label, f2_label]]], axis=1).values), 1, 2
-            )
-
-            BQM.add_interaction(f1_label, f2_label, -cmi)
+        if type=="cmi":
+            for (f1_label, f2_label) in itertools.combinations(self.X.columns, 2):
+                f_CMI = conditional_mutual_information(prob(pd.concat([self.y, self.X[f1_label], self.X[f2_label]], axis=1).values), 1, 2)
+                BQM.add_interaction(f1_label, f2_label, -f_CMI)        
+        else:
+            for (f1_idx, f2_idx) in itertools.combinations(range(len(list(self.X.columns))), 2):
+                f1_label, f2_label = feature_labels[f1_idx], feature_labels[f2_idx]
+                BQM.add_interaction(f1_label, f2_label, feature_importances[1].get((f1_idx, f2_idx)))
 
         penalty = maximum_energy_delta(BQM)
         kbqm = dimod.generators.combinations(BQM.variables, k, strength=penalty)
@@ -154,11 +216,11 @@ class PermutationFeatureImportance:
         Uses Simulated Annealing to find an optimal ranking of features.
         
         Returns:
-        self.selected (list): A list of column indices for the selected features
+        self.selected_features (list): A list of column indices for the selected features
         """
         
-        sampler = dimod.SimulatedAnnealingSampler()
-        sampleset = sampler.sample(self.BQM, num_reads=100)
+        sampler = neal.SimulatedAnnealingSampler()
+        sampleset = sampler.sample(self.BQM, num_reads=100, seed=12)
 
         #Extract feature ranking from SA results
         best_sample = sampleset.first.sample
@@ -170,8 +232,8 @@ class PermutationFeatureImportance:
     def get_selected_features(self):
         """        
         Returns:
-            selected_features (list): A list of the indices for the selected features
-            X_reduced (DataFrame): The dataset with only the selected features.
+        selected_features (list): A list of the indices for the selected features
+        X_reduced (DataFrame): The dataset with only the selected features.
         """
         
         selected_features = self.selected_features
