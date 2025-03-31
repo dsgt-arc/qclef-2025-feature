@@ -2,7 +2,7 @@ import dimod
 import neal
 import numpy as np
 import lightgbm as lgb
-from sklearn.metrics import ndcg_score, mean_absolute_error
+from sklearn.metrics import ndcg_score
 from models.MutualInformation import conditional_mutual_information, prob, maximum_energy_delta
 from tests.scoring_model import train_lambdamart
 import pandas as pd
@@ -17,20 +17,6 @@ class PermutationFeatureImportance:
         # self.model = model
         self.feature_importances_ = None
         self.selected_features = None
-
-    def _compute_mae(self, model, X, y):
-        """
-        Computes mean absolute error.
-        
-        Args:
-        X: Feature matrix.
-        y: Data labels.
-    
-        Returns:
-        MAE: Mean absolute error score for the test set.
-        """
-        y_pred = model.predict(X)
-        return mean_absolute_error(y, y_pred)
     
     def _compute_ndcg(self, model, X, y):
         """
