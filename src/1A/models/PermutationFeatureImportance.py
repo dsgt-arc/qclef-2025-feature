@@ -4,37 +4,9 @@ import numpy as np
 import lightgbm as lgb
 from sklearn.metrics import ndcg_score, mean_absolute_error
 from models.MutualInformation import conditional_mutual_information, prob, maximum_energy_delta
+from tests.scoring_model import train_lambdamart
 import pandas as pd
 import itertools
-
-def train_lambdamart(X_train, y_train, group_sizes):
-    """
-    Trains a LambdaMART model using LightGBM.
-    
-    Args:
-        X_train (pd.DataFrame or np.ndarray): Feature matrix for training.
-        y_train (pd.Series or np.ndarray): Relevance scores for training.
-        group_sizes (list): List of group sizes for ranking task (e.g., number of documents per query).
-    
-    Returns:
-        model (LightGBM model): Trained LambdaMART model.
-    """
-    # Create a dataset for LightGBM with ranking information
-    train_data = lgb.Dataset(X_train, label=y_train, group=group_sizes)
-    
-    # Set parameters for LambdaMART (LightGBM specific)
-    params = {
-        'objective': 'lambdarank',  # LambdaMART objective
-        'metric': 'ndcg',           # Optimize for NDCG
-        'boosting_type': 'gbdt',    # GBDT boosting
-        'num_leaves': 31,           # Number of leaves in one tree
-        'learning_rate': 0.05,      # Learning rate
-        'num_iterations': 100       # Number of boosting iterations
-    }
-    
-    # Train the model
-    model = lgb.train(params, train_data)
-    return model
 
 class PermutationFeatureImportance:
     def __init__(self, X, y, qids):
