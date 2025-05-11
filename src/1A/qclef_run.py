@@ -7,14 +7,6 @@ from qclef import qa_access as qa
 from dwave.system.samplers import DWaveSampler
 from dwave.system.composites import EmbeddingComposite
 
-filepath = 'team_workspace/2A/qclef-2025-instance/outputs/'
-dataset = 'MQ2007'
-method = 'SA'
-submission_type = 'pfi'
-run_name = 'pfi-10-features'
-num_features=10
-num_reads=5000
-
 train_data_path = os.path.join(os.path.dirname(__file__), "..", "data", "MQ2007_train.csv")
 val_data_path = os.path.join(os.path.dirname(__file__), "..", "data", "MQ2007_dev.csv")
 results_path = os.path.join(os.path.dirname(__file__), "..", "results", "1A_MQ2007_MI.txt") 
@@ -89,4 +81,15 @@ def run_submission(submission_type, method, num_features, run_name, num_reads):
 
     write_submission(selected_features, submissionID=run_name)
 
-run_submission(submission_type=submission_type, method=method, num_features=num_features, run_name=run_name)
+
+#--------Submission-------------
+
+filepath = 'team_workspace/1A/outputs/'
+dataset = 'MQ2007'
+method = 'SA'
+submission_type = 'mi'
+run_name = 'mii-10-features'
+num_features=10
+num_reads=5000
+
+run_submission(submission_type=submission_type, method=method, num_features=num_features, run_name=run_name, num_reads=num_reads)
