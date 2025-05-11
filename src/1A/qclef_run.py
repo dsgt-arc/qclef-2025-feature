@@ -3,6 +3,7 @@ import pandas as pd
 import os
 from models.MutualInformation import mi_bqm_with_penalty
 from neal import SimulatedAnnealingSampler
+from tests.scoring_model import calc_ndcg_score
 from qclef import qa_access as qa
 from dwave.system.samplers import DWaveSampler
 from dwave.system.composites import EmbeddingComposite
@@ -21,10 +22,10 @@ y_test_mq = mq2007_test['relevance']
 qids_train = mq2007_train['query_id']
 qids_test = mq2007_test['query_id']
 
-def get_kbqm_pfi(X_train, y_train, qids_train, num_features):
+def get_kbqm_pfi(X_train, y_train, qids_train, num_features, type):
     print("Generating kbqm for Permutation Feature Importance")
     Pfi_model = PermutationFeatureImportance(X_train, y_train, qids_train)
-    feature_importances = Pfi_model.fit(k=num_features)
+    feature_importances = Pfi_model.fit(k=num_features, type=type)
     kbqm = Pfi_model.BQM
 
     return kbqm
@@ -35,16 +36,20 @@ def get_kbqm_mi(X_train, y_train, num_features):
 
     return kbqm
 
-def run_SA(kbqm, run_name, num_reads):
+def run_SA(kbqm, run_name, num_reads, env="qclef"):
     print("Running the SA method")
-    sampler_SA = SimulatedAnnealingSampler()
+    if env=="local":
+        sampler_SA = SimulatedAnnealingSampler()
+        response_SA = sampler_SA.sample(kbqm, num_reads=num_reads, seed=42)
+    else:
+        sampler_SA = SimulatedAnnealingSampler()
 
-    response_SA=qa.submit(sampler_SA,
-        SimulatedAnnealingSampler.sample,
-        kbqm,
-        label=f'1A - MQ2007 - {run_name} - SA',
-        num_reads=num_reads
-    )
+        response_SA=qa.submit(sampler_SA,
+            SimulatedAnnealingSampler.sample,
+            kbqm,
+            label=f'1A - MQ2007 - {run_name} - SA',
+            num_reads=num_reads
+        )
     
     selected_features = response_SA.first.sample
     return selected_features
@@ -72,21 +77,26 @@ def write_submission(selected_features, submissionID):
             if selected:
                 file.write(f"{feature}\n")
 
-def run_submission(submission_type, method, num_features, run_name, num_reads):
+def run_submission(submission_type, method, num_features, run_name, num_reads, env="qclef", type="cpfi"):
     if submission_type=="mi":
         kbqm = get_kbqm_mi(X_train_mq, y_train_mq, num_features)
     elif submission_type=="pfi":
-        kbqm = get_kbqm_pfi(X_train_mq, y_train_mq, qids_train, num_features)
+        kbqm = get_kbqm_pfi(X_train_mq, y_train_mq, qids_train, num_features, type)
     else:
         print("Invalid submission type")
         return
     
     if method=="SA":
-        selected_features = run_SA(kbqm, run_name, num_reads)
+        selected_features = run_SA(kbqm, run_name, num_reads, env)
     elif method=="QA":
         selected_features = run_QA(kbqm, run_name, num_reads)
     else:
         print("Invalid method")
+
+    if env=="local":
+        selected_feature_names = [feature for feature, selected in selected_features.items() if selected == 1]
+        ndcg_score_sa = calc_ndcg_score(X_train_mq, X_test_mq, y_train_mq, y_test_mq, qids_train, qids_test, selected_feature_names)
+        print(f"nDCG score for {run_name}: {ndcg_score_sa}")
 
     write_submission(selected_features, submissionID=run_name)
 
@@ -96,9 +106,10 @@ def run_submission(submission_type, method, num_features, run_name, num_reads):
 filepath = 'team_workspace/1A/outputs/'
 dataset = 'MQ2007'
 method = 'SA'
-submission_type = 'mi'
-run_name = 'mii-10-features'
-num_features=10
-num_reads=5000
+submission_type = 'pfi'
+num_features=[5, 10, 15, 20, 25, 30, 35, 40]
+num_reads=1000
 
-run_submission(submission_type=submission_type, method=method, num_features=num_features, run_name=run_name, num_reads=num_reads)
+for features in num_features:
+    run_name = f'pfi-k-{features}-cmi'
+    run_submission(submission_type=submission_type, method=method, num_features=features, run_name=run_name, num_reads=num_reads, env="local", type="cmi")
