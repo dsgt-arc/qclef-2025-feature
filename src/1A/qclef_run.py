@@ -45,6 +45,9 @@ def run_SA(kbqm, run_name, num_reads):
         label=f'1A - MQ2007 - {run_name} - SA',
         num_reads=num_reads
     )
+    
+    selected_features = response_SA.first.sample
+    return selected_features
 
 def run_QA(kbqm, run_name, num_reads):
     print("Running the QA method")
