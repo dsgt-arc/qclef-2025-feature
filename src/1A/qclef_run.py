@@ -22,6 +22,7 @@ qids_train = mq2007_train['query_id']
 qids_test = mq2007_test['query_id']
 
 def get_kbqm_pfi(X_train, y_train, qids_train, num_features):
+    print("Generating kbqm for Permutation Feature Importance")
     Pfi_model = PermutationFeatureImportance(X_train, y_train, qids_train)
     feature_importances = Pfi_model.fit(k=num_features)
     kbqm = Pfi_model.BQM
@@ -29,11 +30,13 @@ def get_kbqm_pfi(X_train, y_train, qids_train, num_features):
     return kbqm
 
 def get_kbqm_mi(X_train, y_train, num_features):
+    print("Generating kbqm for Mutual Information")
     kbqm = mi_bqm_with_penalty(X_train, y_train, num_features)
 
     return kbqm
 
 def run_SA(kbqm, run_name, num_reads):
+    print("Running the SA method")
     sampler_SA = SimulatedAnnealingSampler()
 
     response_SA=qa.submit(sampler_SA,
@@ -44,7 +47,7 @@ def run_SA(kbqm, run_name, num_reads):
     )
 
 def run_QA(kbqm, run_name, num_reads):
-    print("Running the QA method: Permutation Feature Importance")
+    print("Running the QA method")
     sampler_QA=EmbeddingComposite(DWaveSampler())
 
     response_QA=qa.submit(sampler_QA,
@@ -78,6 +81,8 @@ def run_submission(submission_type, method, num_features, run_name, num_reads):
         selected_features = run_SA(kbqm, run_name, num_reads)
     elif method=="QA":
         selected_features = run_QA(kbqm, run_name, num_reads)
+    else:
+        print("Invalid method")
 
     write_submission(selected_features, submissionID=run_name)
 
