@@ -68,8 +68,9 @@ def write_submission(selected_features, submissionID):
             
     with open(filename, 'w') as file:
         # Write the keys
-        for feature in selected_features:
-            file.write(f"{feature}\n")
+        for feature, selected in selected_features.items():
+            if selected:
+                file.write(f"{feature}\n")
 
 def run_submission(submission_type, method, num_features, run_name, num_reads):
     if submission_type=="mi":
