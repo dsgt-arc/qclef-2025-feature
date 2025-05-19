@@ -1,10 +1,10 @@
 import dimod
 import neal
 import numpy as np
-import lightgbm as lgb
 from sklearn.metrics import ndcg_score
 from models.MutualInformation import conditional_mutual_information, prob, maximum_energy_delta
-from tests.scoring_model import train_lambdamart
+# from tests.scoring_model import train_lambdamart
+import xgboost as xgb
 import pandas as pd
 import itertools
 
@@ -29,8 +29,37 @@ class PermutationFeatureImportance:
         Returns:
         1 - ndcg (float): 1 - nDCG@k score for the test set.
         """
-        y_pred = model.predict(X)
+        y_pred = model.predict(xgb.DMatrix(X)) #Because we're using xgb to stand-in for Lambdamart
+        # y_pred = model.predict(X)
         return 1 - ndcg_score([y], [y_pred], k=10)
+    
+    def train_xgboost_surrogate(self, X_train, y_train, group_sizes):
+        """
+        Trains an XGBoost model as a surrogate for LambdaMART to be used for permutation importance.
+        
+        Args:
+            X_train (pd.DataFrame or np.ndarray): Feature matrix for training.
+            y_train (pd.Series or np.ndarray): Relevance scores for training.
+        
+        Returns:
+            model (XGBRegressor): Trained XGBoost regression model.
+        """
+        dtrain = xgb.DMatrix(X_train, label=y_train, missing=np.nan)
+        dtrain.set_group(group_sizes)  # Same as LightGBM's group
+
+        params = {
+            'objective': 'rank:ndcg',     # Closest to 'lambdarank'
+            'eval_metric': 'ndcg',        # Same as LightGBM's metric
+            'eta': 0.05,                  # Same as LightGBM's learning rate
+            'max_leaves': 31,             # Approximate complexity control
+            'tree_method': 'hist',
+            "predictor": "cpu_predictor",
+
+        }
+
+        model = xgb.train(params, dtrain, num_boost_round=100)
+        return model
+
 
     def _permute_feature(self, feature_idx):
         """
@@ -97,7 +126,8 @@ class PermutationFeatureImportance:
         unique_qids, group_sizes = np.unique(qids_train, return_counts=True)
 
         # Train LambdaMART and get predictions
-        model = train_lambdamart(X_train, y_train, group_sizes)
+        # model = train_lambdamart(X_train, y_train, group_sizes)
+        model = self.train_xgboost_surrogate(X_train, y_train, group_sizes)
         
         #Compute original model error
         e_orig = self._compute_ndcg(model, self.X, self.y)
@@ -120,7 +150,7 @@ class PermutationFeatureImportance:
 
         return (dict(diagonal_feature_importances), dict(off_diagonal_feature_importances))
 
-    def fit(self, k=10, type="cpfi"):
+    def fit(self, k=10, _type="cpfi"):
         """
         Forms the QUBO matric and runs the optimization with simulated annealing.
         
@@ -128,12 +158,12 @@ class PermutationFeatureImportance:
         X: Feature matrix.
         y: Data labels.
         """
-        self.BQM = self.form_bqm(k, type)
+        self.BQM = self.form_bqm(k, _type)
 
         #Use simulated annealing to optimize feature ranking
         return self._optimize_feature_ranking()
     
-    def form_bqm(self, k, type):
+    def form_bqm(self, k, _type):
         """
         Builds the BQM according to Permutation Feature Importance on the diagonal and
         Conditional Permutation Feature Importance on the off-diagonal.
@@ -154,7 +184,7 @@ class PermutationFeatureImportance:
             BQM.add_variable(feature_labels[j], feature_importances[0].get(j))
 
         # Compute off-diagonal elements (CMI)
-        if type=="cmi":
+        if _type=="cmi":
             for (f1_label, f2_label) in itertools.combinations(self.X.columns, 2):
                 f_CMI = conditional_mutual_information(prob(pd.concat([self.y, self.X[f1_label], self.X[f2_label]], axis=1).values), 1, 2)
                 BQM.add_interaction(f1_label, f2_label, -f_CMI)        
@@ -212,7 +242,8 @@ class PermutationFeatureImportance:
         unique_qids, group_sizes = np.unique(qids_train, return_counts=True)
 
         # Train LambdaMART and get predictions
-        model = train_lambdamart(X_train_reduced, y, group_sizes)
+        # model = train_lambdamart(X_train_reduced, y, group_sizes)
+        model = self.train_xgboost_surrogate(X_train_reduced, y, group_sizes)
 
         y_pred = model.predict(X_test.iloc[:, selected_features])
         
