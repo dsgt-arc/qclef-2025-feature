@@ -2,10 +2,7 @@
 
 Repository for the Feature Selection Task (Task 1) of Quantum Clef 2025
 
-# Repo structure
-* users/ stores jupyter notebooks, explorations etc. per member. Please do your work in a subfolder with your name, so we will not have any merge conflicts ever
-* doc/ stores relevant diagrams, documents (not papers) which may be relevant
-* data/ in case we need to store (small pieces of) data. Bigger data should be e.g. on google drive.
-* organizers-code/ in case there is starter code from the organizers 
-* .gitignore make sure we keep the repo clean
 
+# Installation: 
+1) clone the repository
+2) navigate to the directory and run pip install -e .
